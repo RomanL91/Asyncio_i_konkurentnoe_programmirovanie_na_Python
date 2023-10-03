@@ -85,9 +85,6 @@ async def main_shield():
 
 
 
-
-
-
 if __name__ == "__main__":
     # print('Выполняю функцию main_cancel')
     # asyncio.run(main_cancel())
