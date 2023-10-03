@@ -46,6 +46,7 @@ async def main_cancel():
 # что вызов cancel как бы прикрепит к задаче статус CancelledError и если не 
 # будет встречено await в последующем, то и задача не снимится.
 
+
 # ===================================================================================
 # 2.4.2 Задание тайм-аута и снятие с по­мощью wait_for
 
@@ -65,10 +66,34 @@ async def main_wait_for():
         print(f'Задача была снята? {delay_task.cancelled()}') # статус отмены
 
 
+# ===================================================================================
+# ПРОБЛЕМА:
+# В некоторых случаях желательно дать сопрограмме поработать. А по прошествию некоторого 
+# времени проинформировать пользователя о том, что выполнение заняло времени дольше, чем
+# ожидалось, но не снимать задачу.
+
+
+async def main_shield():
+    task = asyncio.create_task(delay(10))
+    try:
+        result = await asyncio.wait_for(asyncio.shield(task), 5)
+        print(result)
+    except TimeoutError:
+        print("Задача заняла более 5 с, скоро она закончится!")
+        result = await task
+        print(result)
+
+
+
+
+
 
 if __name__ == "__main__":
-    print('Выполняю функцию main_cancel')
-    asyncio.run(main_cancel())
-    print('='*80)
-    print('Выполняю функцию main_wait_for')
-    asyncio.run(main_wait_for())
+    # print('Выполняю функцию main_cancel')
+    # asyncio.run(main_cancel())
+    # print('='*80)
+    # print('Выполняю функцию main_wait_for')
+    # asyncio.run(main_wait_for())
+    # print('='*80)
+    print('Выполняю функцию main_shield')
+    asyncio.run(main_shield())
