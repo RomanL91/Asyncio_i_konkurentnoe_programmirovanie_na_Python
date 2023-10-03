@@ -78,7 +78,7 @@ async def main_shield():
     try:
         result = await asyncio.wait_for(asyncio.shield(task), 5)
         print(result)
-    except TimeoutError:
+    except asyncio.exceptions.TimeoutError:
         print("Задача заняла более 5 с, скоро она закончится!")
         result = await task
         print(result)
