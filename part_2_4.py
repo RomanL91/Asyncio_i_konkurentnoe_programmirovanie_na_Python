@@ -24,7 +24,7 @@ from asyncio import CancelledError
 from part_2_3 import delay
 
 
-async def main():
+async def main_cancel():
     long_task = asyncio.create_task(delay(10)) # долгая задача 10 с
     seconds_elapsed = 0 # некий таймер
     
@@ -40,10 +40,35 @@ async def main():
         print('Наша задача была снята')
 
 
-asyncio.run(main())
-
 # Вызов cancel не прерывает задачу, делающую свое дело;
 # он снимает ее, только если она уже находится в точке ожидания или
 # когда дойдет до следующей такой точки. Это важно помнить и понимать так - 
 # что вызов cancel как бы прикрепит к задаче статус CancelledError и если не 
 # будет встречено await в последующем, то и задача не снимится.
+
+# ===================================================================================
+# 2.4.2 Задание тайм-аута и снятие с по­мощью wait_for
+
+# ПРОБЛЕМА:
+# Пример выше это некий показательный пример, в нем мы хардим таймаут задачи. 
+# Хотелось бы иметь функцию, которой можно отдать обьект сопрограммы и указать таймаут для
+# ее выполнения. Можно написать самому. Но есть готовый вариант.
+
+
+async def main_wait_for():
+    delay_task = asyncio.create_task(delay(2)) # задача в 2 с
+    try:
+        result = await asyncio.wait_for(delay_task, timeout=1) # таймаут в 1 сек
+        print(result)
+    except asyncio.exceptions.TimeoutError: # ожидаймое исключение
+        print('Тайм-аут!')
+        print(f'Задача была снята? {delay_task.cancelled()}') # статус отмены
+
+
+
+if __name__ == "__main__":
+    print('Выполняю функцию main_cancel')
+    asyncio.run(main_cancel())
+    print('='*80)
+    print('Выполняю функцию main_wait_for')
+    asyncio.run(main_wait_for())
