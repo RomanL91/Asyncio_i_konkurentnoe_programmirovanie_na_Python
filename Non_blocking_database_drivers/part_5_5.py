@@ -5,6 +5,8 @@ from typing import List, Tuple, Union
 
 from random import randint, sample
 
+from utils import async_timed
+
 # ==================================================================
 # Вставка случайный марок
 
@@ -137,3 +139,102 @@ product_query = \
 # ==================================================================
 
 # Далее мы будем создавать пул подключений к БД для конкуретного выполнения запросов. 
+
+# ==================================================================
+# 5.5.2 Создание пула подключений для конкурентного выполнения запросов
+# 
+# Немного пояснения.
+# Представим что такое пул - это коробка с подключениями. У коробки может
+# быть размер и соотвественно подключений она может хранить ограниченного 
+# колличество. Представим теперь в виде коробочки с карандашами, где
+# коробочка - все тот же пул, а карандаши - подключения к БД.
+# Мы сидим рисуем, берем один карандаш, используем его, после как закончили
+# с ним возращаем его в коробочку, берем другой, используем его и так далее.
+# Думаю пример с карандашами довольно хорошо описывает суть. 
+# Это пример все же синхронного использования пула подключений.
+# Для бельшей наглядности представляем дальше, что в нашей коробке всего два
+# карандаша, а нас (художников) за столом сидят трое. Первый берет
+# карандаш - рисует, воторой берет карандаш (последний) - рисует, но а что
+# там с третим - ему то придется подождать. Из этого примера художники
+# как бы сопрограммы, которые взяли подключения, проделывают свои операции 
+# с БД, затем вернут подключения в пул, где другие сопрограммы возьмут 
+# их для своего использования.
+# 
+# Пулы asyncpg являются асинхронными контекстными менеджерами, 
+# т. е. для создания пула нужно использовать конструкцию async with.
+# 
+# После того как пул создан, мы можем захватывать соединения
+# с по­мощью сопрограммы acquire. Она приостанавливается, до тех
+# пор пока в пуле не появится свободное подключение. Затем это подключение 
+# можно использовать для выполнения SQL-запроса. Захват
+# соединения также является асинхронным контекстным менеджером, 
+# который возвращает соединение в пул после использования,
+# так что и в этом случае нужна конструкция async with.
+
+async def query_product(pool):
+    async with pool.acquire() as connection:
+        return await connection.fetchrow(product_query)
+
+
+async def main():
+    async with asyncpg.create_pool(     # создаем пул подключений
+        host='127.0.0.1',
+        port=5432,
+        user='postgres',
+        password='password',
+        database='products',
+        min_size=6,
+        max_size=6
+    ) as pool:
+        # запускаем 2 сопрограммы на выполнение
+        await asyncio.gather(query_product(pool), query_product(pool))
+
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+# ==================================================================
+# ==================================================================
+# сравним время выполнения синхронного и асинхронного подхода.
+
+async def query_product(pool):
+    async with pool.acquire() as connection:
+        return await connection.fetchrow(product_query)
+
+
+@async_timed()
+async def query_products_synchronously(pool, queries):
+    return [await query_product(pool) for _ in range(queries)]
+
+
+@async_timed()
+async def query_products_concurrently(pool, queries):
+    queries = [query_product(pool) for _ in range(queries)]
+    return await asyncio.gather(*queries)
+
+
+async def main():
+    async with asyncpg.create_pool(
+        host='127.0.0.1',
+        port=5432,
+        user='postgres',
+        password='password',
+        database='products',
+        min_size=6,
+        max_size=6
+    ) as pool:
+        await query_products_synchronously(pool, 10000)
+        await query_products_concurrently(pool, 10000)
+
+
+# if __name__ == "__main__":
+    # asyncio.run(main())
+
+
+# Вывод
+# выполняется <function query_products_synchronously at 0x7fb62c7184c0> с аргументами (<asyncpg.pool.Pool object at 0x7fb62c713530>, 10000) {}
+# <function query_products_synchronously at 0x7fb62c7184c0> завершилась за 3.4284 с
+# 
+# выполняется <function query_products_concurrently at 0x7fb62c7185e0> с аргументами (<asyncpg.pool.Pool object at 0x7fb62c713530>, 10000) {}
+# <function query_products_concurrently at 0x7fb62c7185e0> завершилась за 1.2668 с
+
+# ==================================================================
