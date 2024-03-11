@@ -87,3 +87,81 @@ async def main():
         
 
 # Далее к разбору 5.6.1 Вложенные транзакции
+        
+
+# ==================================================================
+# 5.6.1 Вложенные транзакции
+        
+# Аsyncpg поддерживает также вложенные транзакции благодаря имеющемуся в 
+# Postgres механизму точек сохранения, которые определяются 
+# командой SAVEPOINT. Если определена точка сохранения, то мы
+# можем откатиться к ней, т. е. все запросы, выполненные после точки
+# сохранения, откатываются, а те, что были до нее, – нет.
+
+
+async def main():
+    connection = await asyncpg.connect(
+        host='127.0.0.1',
+        port=5432,
+        user='postgres',
+        database='products',
+        password='password'
+    )
+    
+    async with connection.transaction():
+        
+        await connection.execute("INSERT INTO brand VALUES(DEFAULT, 'my_new_brand')")
+        
+        try:
+            async with connection.transaction():
+                # ошибка дубликата ключа
+                await connection.execute("INSERT INTO product_color VALUES(1, 'black')")
+        except Exception as ex:
+            logging.warning('Ошибка при вставке цвета товара игнорируется', exc_info=ex)
+        
+        await connection.close()
+
+# тут вышло добиться поведения, что при возникновении ошибки мы сохраним первую вставку.
+# ==================================================================
+# ==================================================================
+# 5.6.2 Ручное управление транзакциями
+        
+
+from asyncpg.transaction import Transaction
+
+
+async def main():
+    connection = await asyncpg.connect(
+        host='127.0.0.1',
+            port=5432,
+            user='postgres',
+            database='products',
+            password='password'
+    )
+    
+    transaction: Transaction = connection.transaction() # экземпляр транзакции
+    await transaction.start() # начало транзакции
+    
+    try:
+        await connection.execute("INSERT INTO brand " "VALUES(DEFAULT, 'brand_1')")
+        await connection.execute("INSERT INTO brand " "VALUES(DEFAULT, 'brand_2')")
+    except asyncpg.PostgresError:
+        print('Ошибка, транзакция откатывается!')
+        await transaction.rollback()
+    else:
+        print('Ошибки нет, транзакция фиксируется!')
+        await transaction.commit()
+    
+    query = """SELECT brand_name FROM brand WHERE brand_name LIKE 'brand%'"""
+    brands = await connection.fetch(query)
+    print(brands)
+    await connection.close()
+
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+# ==================================================================
+
+# Далее к разбору 
+# 5.7 Асинхронные генераторы и потоковая
+# обработка результирующих наборов
