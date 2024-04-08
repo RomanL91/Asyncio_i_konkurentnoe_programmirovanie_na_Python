@@ -106,17 +106,17 @@ def increment_value(shared_int: Value): # type: ignore
         shared_int.value = shared_int.value + 1 
 
 
-if __name__ == '__main__':
-    for _ in range(100):
-        integer = Value('i', 0)
-        procs = [Process(target=increment_value, args=(integer,)),
-                Process(target=increment_value, args=(integer,))]
+# if __name__ == '__main__':
+#     for _ in range(100):
+#         integer = Value('i', 0)
+#         procs = [Process(target=increment_value, args=(integer,)),
+#                 Process(target=increment_value, args=(integer,))]
 
-    [p.start() for p in procs]
-    [p.join() for p in procs]
+#     [p.start() for p in procs]
+#     [p.join() for p in procs]
 
-    print(integer.value)
-    assert (integer.value == 2)
+#     print(integer.value)
+#     assert (integer.value == 2)
 
 # Обратите внимание, что мы принудительно преобразовали конкурентный код в 
 # последовательный, сведя на нет преимущества распараллеливания. 
@@ -130,3 +130,119 @@ if __name__ == '__main__':
 # и защищать блокировкой все вообще. Проблему-то вы решите, но,
 # скорее всего, производительность сильно пострадает.
 
+# ==================================================================
+# ==================================================================
+
+# 6.5.3 Разделение данных в пулах процессов
+    
+# Только что мы видели, как разделить данные между двумя процессами, 
+# а как применить эти знания к пулу процессов? Процессы в пуле
+# мы не создаем вручную, что вызывает проблемы при разделении данных.
+
+# Чтобы решить проблему, мы должны поместить разделяемый
+# счетчик в глобальную переменную и каким-то образом дать знать об
+# этом процессам-исполнителям. Для этого предназначены инициализаторы 
+# пула процессов – специальные функции, которые вызываются
+# в момент запуска каждого процесса в пуле. С их помощью мы можем
+# создать ссылку на разделяемую память, выделенную родительским
+# процессом. Инициализатор можно передать пулу процессов в момент
+# его создания. Продемонстрируем это на простом примере инкрементирования счетчика.
+
+
+from concurrent.futures import ProcessPoolExecutor
+import asyncio
+from multiprocessing import Value
+
+
+shared_counter: Value # type: ignore
+
+
+def init(counter: Value): # type: ignore
+    global shared_counter
+    shared_counter = counter
+
+
+def increment():
+    with shared_counter.get_lock():
+        shared_counter.value += 1
+
+
+async def main():
+    counter = Value('d', 0)
+    with ProcessPoolExecutor(initializer=init, initargs=(counter,)) as pool:
+        await asyncio.get_running_loop().run_in_executor(pool, increment)
+        print(counter.value)
+
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
+
+# ==================================================================
+# ==================================================================
+
+from concurrent.futures import ProcessPoolExecutor
+import functools
+import asyncio
+from multiprocessing import Value
+from typing import List, Dict
+from part_6_4 import partition, merge_dictionaries
+
+
+map_progress: Value # type: ignore
+
+
+def init(progress: Value): # type: ignore
+    global map_progress
+    map_progress = progress
+
+
+def map_frequencies(chunk: List[str]) -> Dict[str, int]:
+    counter = {}
+    for line in chunk:
+        word, _, count, _ = line.split('\t')
+        if counter.get(word):
+            counter[word] = counter[word] + int(count)
+        else:
+            counter[word] = int(count)
+
+    with map_progress.get_lock():
+        map_progress.value += 1
+    
+    return counter
+
+
+async def progress_reporter(total_partitions: int):
+    while map_progress.value < total_partitions:
+        print(f'Завершено операций отображения: {map_progress.value}/{total_partitions}')
+
+        await asyncio.sleep(1)
+
+
+async def main(partiton_size: int):
+    global map_progress
+
+    with open('googlebooks-eng-all-1gram-20120701-a', encoding='utf-8') as f:
+        contents = f.readlines()
+        loop = asyncio.get_running_loop()
+        tasks = []
+        map_progress = Value('i', 0)
+
+        with ProcessPoolExecutor(initializer=init, initargs=(map_progress,)) as pool:
+            total_partitions = len(contents) // partiton_size
+            reporter = asyncio.create_task(progress_reporter(total_partitions))
+
+            for chunk in partition(contents, partiton_size):
+                tasks.append(loop.run_in_executor(pool, functools.partial(map_frequencies, chunk)))
+
+        counters = await asyncio.gather(*tasks)
+        await reporter
+        final_result = functools.reduce(merge_dictionaries, counters)
+        print(f"Aardvark встречается {final_result['Aardvark']} раз.")
+
+# if __name__ == "__main__":
+#     asyncio.run(main(partiton_size=60000))
+
+
+
+# далее к изучению:
+# 6.6Несколько процессов и несколько циклов событий
